@@ -21,6 +21,7 @@ mac:
       arch: [x64, arm64]
     - target: zip
       arch: [x64, arm64]
+  icon: resources/icon.icns
   category: public.app-category.developer-tools
   hardenedRuntime: true
   # Code signing and notarization are configured once certificates exist;
@@ -41,7 +42,7 @@ linux:
       arch: [x64, arm64]
     - target: deb
       arch: [x64]
-  icon: resources/icon.png
+  icon: resources/icon-512x512.png
   category: Development
 
 nsis:
