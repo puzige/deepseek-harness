@@ -1,0 +1,56 @@
+# electron-builder packaging for the DeepSeek Harness desktop client.
+# Targets match the release matrix in .github/workflows/electron-release.yml.
+appId: com.deepseek.harness
+productName: DeepSeek Harness
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+asar: true
+asarUnpack:
+  # Native modules must live outside the asar archive to load at runtime.
+  - node_modules/node-pty/**/*
+  - node_modules/koffi/**/*
+  - node_modules/@deepseek-ai/node-addon-landlock-run*/**/*
+npmRebuild: true
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  # Code signing and notarization are configured once certificates exist;
+  # unsigned builds still install with a manual trust step.
+  identity: null
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+    - target: portable
+      arch: [x64]
+  icon: resources/icon.ico
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64]
+  icon: resources/icon.png
+  category: Development
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+# electron-updater reads this stanza; owner/repo point at the publishing fork
+# until the upstream repository owns the desktop release channel.
+publish:
+  provider: github
+  owner: puzige
+  repo: deepseek-harness

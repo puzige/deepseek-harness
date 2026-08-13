@@ -2,6 +2,9 @@ CLAUDE.local.md
 .env
 node_modules/
 lib/
+# Electron desktop client build outputs
+apps/electron/out/
+apps/electron/release/
 *.tsbuildinfo
 pnpm-debug.log
 .pnpm-store/

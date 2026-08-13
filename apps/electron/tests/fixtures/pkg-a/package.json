@@ -1,0 +1,10 @@
+{
+  "name": "@deepseek-ai/fixture-pkg-a",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./startup": { "default": "./lib/startup.js" },
+    "./package.json": "./package.json"
+  }
+}

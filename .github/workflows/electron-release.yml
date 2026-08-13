@@ -1,0 +1,102 @@
+# Build and publish the DeepSeek Harness desktop client (apps/electron).
+#
+# Triggered by electron-v* tags and manual dispatch. Artifacts upload to a
+# draft GitHub Release; electron-updater consumes the generated latest*.yml
+# from that release's assets. macOS/Windows signing is intentionally absent
+# until certificates exist — unsigned builds install with a manual trust step.
+name: Electron desktop client
+
+on:
+  push:
+    tags:
+      - 'electron-v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: Publish artifacts to a draft release (default true)
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: electron-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+            target: mac
+          - os: macos-13
+            arch: x64
+            target: mac
+          - os: windows-latest
+            arch: x64
+            target: win
+          - os: ubuntu-22.04
+            arch: x64
+            target: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The electron main process resolves workspace packages through their
+      # built lib/ output; the web profile serves the built frontend dist.
+      - name: Build workspace libraries
+        run: pnpm run build
+
+      - name: Build desktop app
+        working-directory: apps/electron
+        run: pnpm run build
+
+      - name: Package (${{ matrix.target }}/${{ matrix.arch }})
+        working-directory: apps/electron
+        run: pnpm run package:${{ matrix.target }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ matrix.target }}-${{ matrix.arch }}
+          path: apps/electron/release/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/electron-v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --draft \
+            --title "DeepSeek Harness Desktop $GITHUB_REF_NAME" \
+            --notes "Desktop client build for $GITHUB_REF_NAME."

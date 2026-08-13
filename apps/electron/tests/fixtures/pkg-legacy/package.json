@@ -1,0 +1,5 @@
+{
+  "name": "@deepseek-ai/fixture-pkg-legacy",
+  "type": "module",
+  "main": "./lib/legacy.js"
+}
