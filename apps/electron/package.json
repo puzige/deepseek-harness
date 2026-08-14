@@ -20,6 +20,7 @@
     "name": "DeepSeek AI",
     "email": "opensource@deepseek.com"
   },
+  "desktopName": "DeepSeek Harness",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

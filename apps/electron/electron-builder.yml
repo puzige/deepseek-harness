@@ -39,8 +39,13 @@ win:
 linux:
   # executableName must be a safe filesystem name — electron-builder derives it
   # from the npm package name (@deepseek-ai/dsh-electron) otherwise, whose '@'
-  # and '/' break AppImage/deb artifact paths.
+  # and '/' break AppImage/deb artifact paths. desktopName lives in package.json
+  # (set there) and syncDesktopName links the .desktop entry to the window
+  # WM_CLASS. The deb artifact name is pinned in the deb: block because fpm
+  # would otherwise write '@deepseek-ai/dsh-electron_...deb' (its '@' and '/'
+  # cannot be used as a parent directory by fpm).
   executableName: deepseek-harness
+  syncDesktopName: true
   target:
     - target: AppImage
       arch: [x64, arm64]
@@ -48,6 +53,10 @@ linux:
       arch: [x64]
   icon: resources/icon-512x512.png
   category: Development
+
+deb:
+  artifactName: deepseek-harness-${version}-${arch}.${ext}
+  packageName: deepseek-harness
 
 nsis:
   oneClick: false
