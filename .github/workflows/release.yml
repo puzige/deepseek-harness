@@ -126,7 +126,16 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: electron-${{ matrix.target }}
-          path: apps/electron/release/*
+          # Installer artifacts only — electron-builder also emits *-unpacked
+          # build directories under release/ that must not reach the release.
+          path: |
+            apps/electron/release/*.dmg
+            apps/electron/release/*.zip
+            apps/electron/release/*.exe
+            apps/electron/release/*.AppImage
+            apps/electron/release/*.deb
+            apps/electron/release/*.blockmap
+            apps/electron/release/*.yml
           if-no-files-found: error
 
   release:
