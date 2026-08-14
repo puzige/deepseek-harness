@@ -16,6 +16,10 @@
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
     "directory": "apps/electron"
   },
+  "author": {
+    "name": "DeepSeek AI",
+    "email": "opensource@deepseek.com"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
