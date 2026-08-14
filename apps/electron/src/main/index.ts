@@ -51,14 +51,13 @@ function createMainWindow(url: string): void {
     minHeight: 600,
     title: 'DeepSeek Harness',
     backgroundColor: '#0f1115',
-    // macOS: hide the title bar (no "DeepSeek Harness" bar) while keeping the
-    // traffic-light controls; the page extends under the top edge. The lights
-    // sit inside the sidebar's brand row instead of floating above it, so the
-    // chrome reads as part of the header rather than a strip that pushes the
-    // content down.
+    // macOS: hide the title bar text while keeping the traffic-light controls.
+    // The lights sit in a slim 28px strip at the very top of the window (not
+    // inside the sidebar's brand row, where they would crowd the wordmark),
+    // so the header keeps its natural breathing room.
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset' as const,
-      trafficLightPosition: { x: 14, y: 30 },
+      trafficLightPosition: { x: 14, y: 8 },
     } : {}),
     webPreferences: {
       preload: preloadPath(),

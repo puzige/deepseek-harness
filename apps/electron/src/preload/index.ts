@@ -40,22 +40,15 @@ const bridge = {
 contextBridge.exposeInMainWorld('__DSH_ELECTRON__', bridge)
 
 // ---------------------------------------------------------------------------
-// macOS frameless titlebar: embed the traffic lights into the sidebar header
+// macOS frameless titlebar: a slim top strip holds the traffic lights
 // ---------------------------------------------------------------------------
 // With `titleBarStyle: 'hiddenInset'` the page fills the window edge-to-edge
-// and the system traffic lights float over the sidebar's brand row. Two
-// adjustments make the chrome read as part of the header rather than a strip
-// above it:
-//
-//   • `trafficLightPosition` (set in main/index.ts) lowers the buttons into
-//     the brand row's vertical center. The brand wordmark starts at the
-//     sidebar's left edge, so the lights would overlap it; a left margin on
-//     the brand button shifts the wordmark right of the lights.
-//   • The brand row becomes the window's drag surface
-//     (`-webkit-app-region: drag`), while its buttons stay clickable
-//     (`no-drag`), so the user moves the window by dragging the header — no
-//     extra overlay, no reserved padding, and the conversation area extends
-//     under the top edge like a native macOS app.
+// and the system traffic lights float over the top-left content. Embedding
+// them inside the sidebar's brand row crowds the wordmark against the panel
+// toggle, so instead the lights occupy a slim 28px strip at the very top —
+// far shorter than a native title bar, yet the brand row keeps its natural
+// spacing. The strip is also the window's drag surface, and its buttons are
+// re-bound to no-drag so they stay clickable.
 //
 // Class names are matched by substring because the harness frontend builds
 // its CSS Modules with hashed locals (`_logoRow_<hash>_38`); the harness is
@@ -64,6 +57,9 @@ contextBridge.exposeInMainWorld('__DSH_ELECTRON__', bridge)
 // inert if the page is ever loaded outside Electron.
 // ---------------------------------------------------------------------------
 if (process.platform === 'darwin') {
+  /** Height of the reserved top strip, in pixels. */
+  const STRIP_HEIGHT = 28
+
   const installDarwinChrome = (): void => {
     // Guard against double-injection (e.g. if preload runs twice).
     if (document.getElementById('dsh-electron-darwin-css') !== null) return
@@ -72,21 +68,41 @@ if (process.platform === 'darwin') {
     const style = document.createElement('style')
     style.id = 'dsh-electron-darwin-css'
     style.textContent = `
-      /* Sidebar brand row: the drag surface, with the traffic lights embedded
-         at its left edge (trafficLightPosition in main/index.ts). */
-      html.dsh-electron-darwin [class*='logoRow'] {
+      html.dsh-electron-darwin {
+        --dsh-electron-strip: ${STRIP_HEIGHT}px;
+      }
+      html.dsh-electron-darwin body {
+        /* Reserve the slim strip for the traffic lights. */
+        padding-top: var(--dsh-electron-strip) !important;
+        box-sizing: border-box !important;
+        background-color: var(--dsw-alias-bg-base, #0f1115);
+      }
+      /* The strip itself is the drag surface; its buttons stay clickable. */
+      html.dsh-electron-darwin #dsh-electron-drag-strip {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--dsh-electron-strip);
+        z-index: 2147483647;
         -webkit-app-region: drag;
-      }
-      /* Buttons inside the row stay clickable and do not start a drag. */
-      html.dsh-electron-darwin [class*='logoRow'] button {
-        -webkit-app-region: no-drag;
-      }
-      /* Shift the brand wordmark right of the traffic lights. */
-      html.dsh-electron-darwin [class*='logoRow'] [class*='brand'] {
-        margin-left: 72px;
       }
     `
     document.head.appendChild(style)
+
+    const strip = document.createElement('div')
+    strip.id = 'dsh-electron-drag-strip'
+    strip.style.cssText = [
+      'position: fixed',
+      'top: 0',
+      'left: 84px',
+      'right: 0',
+      `height: ${STRIP_HEIGHT}px`,
+      'z-index: 2147483647',
+      '-webkit-app-region: drag',
+      'pointer-events: none',
+    ].join(';')
+    document.documentElement.appendChild(strip)
   }
 
   if (document.readyState === 'loading') {
