@@ -11,17 +11,21 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 // Must run before any @deepseek-ai package loads: the hook restores the
 // dependency-closure resolution the Electron realm cannot reach through
-// Node's internal loader.
+// Node's internal loader. server.ts and everything it imports are loaded
+// DYNAMICALLY below, because ESM static imports resolve before this module's
+// body runs — a static import of dsh-app-boot would fail inside the packaged
+// asar before the hook could intercept it.
 import { installResolveHooks } from './resolve-hooks.ts'
 import { takePendingDeepLink } from './deeplink.ts'
 import { createMenu } from './menu.ts'
 import { createTray, disposeTray } from './tray.ts'
 import { registerDeepLink } from './deeplink.ts'
-import { startServer, type DesktopServer } from './server.ts'
 import { initUpdater } from './updater.ts'
+import type { DesktopServer } from './server.ts'
 
-// Module top level: the hook must be registered before the harness imports
-// below (server.ts and its @deepseek-ai/* transitives) finish loading.
+// Module top level, before ANY @deepseek-ai import runs: the hook restores
+// the dependency-closure resolution the Electron realm cannot reach through
+// Node's internal loader.
 installResolveHooks()
 
 /** The single desktop server instance, while the app is running. */
@@ -98,9 +102,15 @@ function createMainWindow(url: string): void {
 /**
  * Boot the harness, open the window, and start the desktop extras.
  * Failures tear the tree down so the app can report and exit cleanly.
+ *
+ * server.ts is imported dynamically (not statically): the resolve hook must
+ * be registered before any @deepseek-ai module loads, and ESM static imports
+ * resolve before this module's body runs — inside the packaged asar that
+ * would fail before the hook could intercept it.
  */
 async function startDesktop(): Promise<void> {
   try {
+    const { startServer } = await import('./server.ts')
     server = await startServer()
   } catch (error) {
     console.error('dsh-electron: failed to boot the harness', error)

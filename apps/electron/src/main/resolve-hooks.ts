@@ -25,8 +25,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { createRequire, registerHooks } from 'node:module'
-import { join } from 'node:path'
+import { registerHooks } from 'node:module'
+import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 /** Absolute path of this app's package.json (src/main and out/main both sit two levels under apps/electron). */
@@ -52,20 +52,29 @@ function readManifest(path: string): Manifest {
 }
 
 /**
- * Resolve one package's root directory from an anchor's require paths (the
- * same lookup order Node itself uses, so the result matches what the Loader
- * would import from the same anchor). `existsSync` follows pnpm's symlinks.
+ * Resolve one package's root directory from an anchor's directory: walk up
+ * from the anchor looking for a `node_modules/<packageName>` directory.
+ *
+ * This deliberately does NOT use `createRequire(anchor).resolve.paths()`:
+ * inside the packaged asar, `require.resolve` cannot enumerate module search
+ * paths (Node does not understand asar URLs), so the closure would silently
+ * miss packages. Electron's fs patch makes `readdirSync`/`existsSync` work
+ * inside asar, which is what this walk relies on. In a source checkout the
+ * same walk finds pnpm's symlinked workspace packages (existsSync follows
+ * the symlink), so dev and packaged layouts share one code path.
  * @param anchor - absolute path of a package.json to resolve from.
  * @param packageName - the package name to locate.
  * @returns the package's absolute directory, or `undefined` when not resolvable.
  */
 function packageDirFromAnchor(anchor: string, packageName: string): string | undefined {
-  /* v8 ignore next -- createRequire always resolves from a real anchor */
-  for (const searchPath of createRequire(anchor).resolve.paths(packageName) ?? []) {
-    const candidate = join(searchPath, packageName)
+  let dir = dirname(anchor)
+  for (;;) {
+    const candidate = join(dir, 'node_modules', packageName)
     if (existsSync(join(candidate, 'package.json'))) return candidate
+    const parent = dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
   }
-  return undefined
 }
 
 /**
