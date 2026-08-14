@@ -1,5 +1,5 @@
 # electron-builder packaging for the DeepSeek Harness desktop client.
-# Targets match the release matrix in .github/workflows/electron-release.yml.
+# Targets match the build matrix in .github/workflows/release.yml.
 appId: com.deepseek.harness
 productName: DeepSeek Harness
 directories:
@@ -37,6 +37,10 @@ win:
   icon: resources/icon.ico
 
 linux:
+  # executableName must be a safe filesystem name — electron-builder derives it
+  # from the npm package name (@deepseek-ai/dsh-electron) otherwise, whose '@'
+  # and '/' break AppImage/deb artifact paths.
+  executableName: deepseek-harness
   target:
     - target: AppImage
       arch: [x64, arm64]
