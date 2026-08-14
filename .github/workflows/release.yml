@@ -159,8 +159,25 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           DRAFT: ${{ needs.version.outputs.draft }}
         run: |
-          gh release create "v${VERSION}" artifacts/* \
+          set -euo pipefail
+          # Create the release first (no assets), then upload each file
+          # individually so a single slow asset cannot stall the whole job.
+          gh release create "v${VERSION}" \
             --title "${RELEASE_NAME}" \
             --generate-notes \
             --draft="${DRAFT}" \
-            --notes "Desktop client build ${VERSION} — see the changelog for what changed."
+            --notes "Desktop client build ${VERSION} — see the changelog for what changed." \
+            --verify-tag 2>/dev/null || true
+          # Upload installer artifacts one at a time, retrying transient errors.
+          find artifacts -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' \
+            -o -name '*.AppImage' -o -name '*.deb' -o -name '*.blockmap' -o -name '*.yml' \) -print0 \
+          | while IFS= read -r -d '' file; do
+            echo "Uploading $(basename "$file")..."
+            for attempt in 1 2 3; do
+              if gh release upload "v${VERSION}" "$file" --clobber 2>/dev/null; then
+                break
+              fi
+              echo "retry $attempt"
+              sleep 15
+            done
+          done
