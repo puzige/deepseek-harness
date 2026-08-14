@@ -1,149 +1,157 @@
-# Pack and publish the dsh release sequence: every package under packages/ plus
-# the apps/ entries, all on one version. The vendored framework and the native
-# packages are separate sequences with their own workflows and version lines.
+# Release — the only pipeline in this repository.
 #
-# Pack runs without credentials on every pull request and master push, so a
-# pull request proves the whole publish set still packs. Publication is a
-# manual dispatch from a dsh-v* tag and consumes exactly the packed bytes.
-name: Release (dsh)
+# Builds the DeepSeek Harness desktop client (apps/electron) for macOS,
+# Windows, and Linux and publishes the artifacts to a GitHub Release, which
+# also feeds electron-updater (latest*.yml is generated per platform).
+#
+# Trigger options:
+#   • workflow_dispatch — manual: pick a version number and the draft state.
+#   • push tag "v*"      — tag-driven: version comes from the tag.
+#
+# The version appears in the release title and the artifact names, so any
+# number of versions can be published from the same pipeline.
+name: Release
 
 on:
-  pull_request:
-  push:
-    branches: [master]
   workflow_dispatch:
     inputs:
-      publish:
-        description: Publish the packed tarballs to npm. Must run from a dsh-v* tag.
-        required: true
+      version:
+        description: 'Version to release (e.g. 0.1.0). Empty uses the app package version.'
+        required: false
+        type: string
+      draft:
+        description: 'Create the release as a draft'
+        required: false
         type: boolean
-        default: false
+        default: true
+  push:
+    tags:
+      - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  # Pack runs per ref so concurrent pull requests never displace each
-  # other; the publish job below serializes the shared dist-tag state.
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  PRIMARY_NODE_VERSION: '24'
-  DSH_TELEMETRY_DISABLED: '1'
-
 jobs:
-  pack:
-    name: Pack npm tarballs
-    runs-on: ubuntu-24.04
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      release_name: ${{ steps.resolve.outputs.release_name }}
+      draft: ${{ steps.resolve.outputs.draft }}
     steps:
-      # Complete history: the release scripts read tags.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: resolve
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(node -p "require('./apps/electron/package.json').version")
+          fi
+          # Tag-driven releases are public; manual ones default to draft.
+          DRAFT="${{ inputs.draft }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            DRAFT="false"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_name=DeepSeek Harness $VERSION" >> "$GITHUB_OUTPUT"
+          echo "draft=$DRAFT" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+            target: mac
+          - os: macos-13
+            arch: x64
+            target: mac
+          - os: windows-latest
+            arch: x64
+            target: win
+          - os: ubuntu-22.04
+            arch: x64
+            target: linux
+          - os: ubuntu-22.04
+            arch: arm64
+            target: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          persist-credentials: false
+          fetch-depth: 1
 
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm
+          version: 11.7.0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          node-version: 22.19
+          cache: pnpm
 
-      - name: Configure pnpm store path
-        id: pnpm-store
-        run: |
-          store_root="$HOME/.local/share/pnpm/store"
-          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
-          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
-          echo "path=$store_path" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - name: Install (immutable)
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify release version
-        env:
-          RELEASE_PUBLISH: ${{ inputs.publish }}
-        run: pnpm run release:verify --family dsh
-
-      - name: Build
+      # The electron main process resolves workspace packages through their
+      # built lib/ output; the web profile serves the built frontend dist.
+      - name: Build workspace libraries
         run: pnpm run build
 
-      - name: Pack release tarballs
-        run: pnpm run release:pack --family dsh --out dist/npm
-
-      # The harness packages declare the vendored framework as a peer, and this
-      # verification must not depend on the registry already carrying matching
-      # versions — one pull request may bump both families before either
-      # publishes — so it installs that family's pack output too. Only dist/npm
-      # is published.
-      - name: Pack the vendored framework for verification
-        run: pnpm run release:pack --family vendor --out dist/npm-vendor
-
-      # dsh-sandbox-local declares the Landlock entry as a runtime dependency, so
-      # the verification needs its tarball. Its platform packages stay out: they
-      # are optional, and building them needs a musl toolchain per architecture.
-      - name: Pack the Landlock entry for verification
+      - name: Set app version
+        working-directory: apps/electron
         run: |
-          pnpm --dir native/landlock-run run build:ts
-          pnpm --dir native/landlock-run/packages/entry pack --pack-destination "$PWD/dist/npm-landlock"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${{ needs.version.outputs.version }}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
 
-      - name: Verify packed install
-        run: pnpm run release:verify-packed-install --family dsh --from dist/npm --from dist/npm-vendor --from dist/npm-landlock
+      - name: Build desktop app
+        working-directory: apps/electron
+        run: pnpm run build
+
+      - name: Package (${{ matrix.target }}/${{ matrix.arch }})
+        working-directory: apps/electron
+        run: pnpm run package:${{ matrix.target }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dsh-npm-tarballs
-          path: dist/npm/*
+          name: electron-${{ matrix.target }}-${{ matrix.arch }}
+          path: apps/electron/release/*
           if-no-files-found: error
-          retention-days: 7
 
-  publish:
-    name: Publish to npm
-    if: inputs.publish
-    needs: pack
-    runs-on: ubuntu-24.04
-    # Required reviewers and the allowed tags live on the environment; this is
-    # the only step in the sequence that can write to the registry.
-    environment: npm-publish
-    concurrency:
-      group: Release-publish
-      cancel-in-progress: false
-    permissions:
-      contents: read
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
     steps:
-      # Checkout and install carry the release scripts only. There is no build
-      # step: publication uploads the bytes the pack job produced.
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@v4
-        with:
-          dest: ${{ runner.temp }}/setup-pnpm
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-          registry-url: https://registry.npmjs.org
-
-      - name: Install (immutable, no package scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
       - uses: actions/download-artifact@v4
         with:
-          name: dsh-npm-tarballs
-          path: dist/npm
+          path: artifacts
+          merge-multiple: true
 
-      - name: Publish tarballs
+      - name: Publish GitHub Release
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm run release:publish --family dsh --from dist/npm
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NAME: ${{ needs.version.outputs.release_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+          DRAFT: ${{ needs.version.outputs.draft }}
+        run: |
+          gh release create "v${VERSION}" artifacts/* \
+            --title "${RELEASE_NAME}" \
+            --generate-notes \
+            --draft="${DRAFT}" \
+            --notes "Desktop client build ${VERSION} — see the changelog for what changed."
