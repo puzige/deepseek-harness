@@ -142,7 +142,6 @@ jobs:
     needs: [version, build]
     runs-on: ubuntu-latest
     steps:
-      # gh release --generate-notes derives the changelog from git history.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -152,32 +151,24 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      # softprops/action-gh-release streams large assets (multi-hundred-MB
+      # dmg/AppImage) instead of loading them into memory, which the gh CLI
+      # chokes on for this payload. Files glob picks the installer artifacts;
+      # *-unpacked build directories are excluded by the upload-artifact
+      # glob in the build job.
       - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_NAME: ${{ needs.version.outputs.release_name }}
-          VERSION: ${{ needs.version.outputs.version }}
-          DRAFT: ${{ needs.version.outputs.draft }}
-        run: |
-          set -euo pipefail
-          # Create the release first (no assets), then upload each file
-          # individually so a single slow asset cannot stall the whole job.
-          gh release create "v${VERSION}" \
-            --title "${RELEASE_NAME}" \
-            --generate-notes \
-            --draft="${DRAFT}" \
-            --notes "Desktop client build ${VERSION} — see the changelog for what changed." \
-            --verify-tag 2>/dev/null || true
-          # Upload installer artifacts one at a time, retrying transient errors.
-          find artifacts -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' \
-            -o -name '*.AppImage' -o -name '*.deb' -o -name '*.blockmap' -o -name '*.yml' \) -print0 \
-          | while IFS= read -r -d '' file; do
-            echo "Uploading $(basename "$file")..."
-            for attempt in 1 2 3; do
-              if gh release upload "v${VERSION}" "$file" --clobber 2>/dev/null; then
-                break
-              fi
-              echo "retry $attempt"
-              sleep 15
-            done
-          done
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: ${{ needs.version.outputs.release_name }}
+          draft: ${{ needs.version.outputs.draft }}
+          generate_release_notes: true
+          body: Desktop client build ${{ needs.version.outputs.version }} — see the changelog for what changed.
+          files: |
+            artifacts/*.dmg
+            artifacts/*.zip
+            artifacts/*.exe
+            artifacts/*.AppImage
+            artifacts/*.deb
+            artifacts/*.blockmap
+            artifacts/*.yml
