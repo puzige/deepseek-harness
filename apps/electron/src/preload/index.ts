@@ -39,31 +39,60 @@ const bridge = {
 
 contextBridge.exposeInMainWorld('__DSH_ELECTRON__', bridge)
 
-// With the macOS title bar hidden (titleBarStyle: hiddenInset) the page fills
-// the window edge to edge, so the window needs an explicit drag surface. A
-// slim, transparent strip along the very top (traffic lights sit at the left)
-// restores move-by-drag without touching the harness frontend.
+// ---------------------------------------------------------------------------
+// macOS frameless titlebar: embed the traffic lights into the sidebar header
+// ---------------------------------------------------------------------------
+// With `titleBarStyle: 'hiddenInset'` the page fills the window edge-to-edge
+// and the system traffic lights float over the sidebar's brand row. Two
+// adjustments make the chrome read as part of the header rather than a strip
+// above it:
+//
+//   • `trafficLightPosition` (set in main/index.ts) lowers the buttons into
+//     the brand row's vertical center. The brand wordmark starts at the
+//     sidebar's left edge, so the lights would overlap it; a left margin on
+//     the brand button shifts the wordmark right of the lights.
+//   • The brand row becomes the window's drag surface
+//     (`-webkit-app-region: drag`), while its buttons stay clickable
+//     (`no-drag`), so the user moves the window by dragging the header — no
+//     extra overlay, no reserved padding, and the conversation area extends
+//     under the top edge like a native macOS app.
+//
+// Class names are matched by substring because the harness frontend builds
+// its CSS Modules with hashed locals (`_logoRow_<hash>_38`); the harness is
+// never rebuilt for this app, so the selectors stay descriptive here.
+// A marker class (`dsh-electron-darwin`) scopes every rule so the styles are
+// inert if the page is ever loaded outside Electron.
+// ---------------------------------------------------------------------------
 if (process.platform === 'darwin') {
-  const installDragStrip = (): void => {
-    if (document.getElementById('dsh-electron-drag-strip') !== null) return
-    const strip = document.createElement('div')
-    strip.id = 'dsh-electron-drag-strip'
-    strip.style.cssText = [
-      'position: fixed',
-      'top: 0',
-      'left: 84px',
-      'right: 0',
-      'height: 32px',
-      'z-index: 2147483647',
-      '-webkit-app-region: drag',
-      'pointer-events: none',
-    ].join(';')
-    document.documentElement.appendChild(strip)
+  const installDarwinChrome = (): void => {
+    // Guard against double-injection (e.g. if preload runs twice).
+    if (document.getElementById('dsh-electron-darwin-css') !== null) return
+    document.documentElement.classList.add('dsh-electron-darwin')
+
+    const style = document.createElement('style')
+    style.id = 'dsh-electron-darwin-css'
+    style.textContent = `
+      /* Sidebar brand row: the drag surface, with the traffic lights embedded
+         at its left edge (trafficLightPosition in main/index.ts). */
+      html.dsh-electron-darwin [class*='logoRow'] {
+        -webkit-app-region: drag;
+      }
+      /* Buttons inside the row stay clickable and do not start a drag. */
+      html.dsh-electron-darwin [class*='logoRow'] button {
+        -webkit-app-region: no-drag;
+      }
+      /* Shift the brand wordmark right of the traffic lights. */
+      html.dsh-electron-darwin [class*='logoRow'] [class*='brand'] {
+        margin-left: 72px;
+      }
+    `
+    document.head.appendChild(style)
   }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installDragStrip)
+    document.addEventListener('DOMContentLoaded', installDarwinChrome)
   } else {
-    installDragStrip()
+    installDarwinChrome()
   }
 }
 
