@@ -39,4 +39,32 @@ const bridge = {
 
 contextBridge.exposeInMainWorld('__DSH_ELECTRON__', bridge)
 
+// With the macOS title bar hidden (titleBarStyle: hiddenInset) the page fills
+// the window edge to edge, so the window needs an explicit drag surface. A
+// slim, transparent strip along the very top (traffic lights sit at the left)
+// restores move-by-drag without touching the harness frontend.
+if (process.platform === 'darwin') {
+  const installDragStrip = (): void => {
+    if (document.getElementById('dsh-electron-drag-strip') !== null) return
+    const strip = document.createElement('div')
+    strip.id = 'dsh-electron-drag-strip'
+    strip.style.cssText = [
+      'position: fixed',
+      'top: 0',
+      'left: 84px',
+      'right: 0',
+      'height: 32px',
+      'z-index: 2147483647',
+      '-webkit-app-region: drag',
+      'pointer-events: none',
+    ].join(';')
+    document.documentElement.appendChild(strip)
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installDragStrip)
+  } else {
+    installDragStrip()
+  }
+}
+
 export type DesktopBridge = typeof bridge

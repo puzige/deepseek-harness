@@ -51,6 +51,10 @@ function createMainWindow(url: string): void {
     minHeight: 600,
     title: 'DeepSeek Harness',
     backgroundColor: '#0f1115',
+    // macOS: hide the title bar (no "DeepSeek Harness" bar) while keeping the
+    // traffic-light controls; the page extends under the top edge. Other
+    // platforms keep the default frame.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
       preload: preloadPath(),
       contextIsolation: true,
