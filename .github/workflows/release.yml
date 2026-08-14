@@ -70,20 +70,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
-            arch: arm64
-            target: mac
-          - os: macos-13
-            arch: x64
+          # One job per platform; each target builds every arch declared in
+          # apps/electron/electron-builder.yml (mac x64+arm64, win x64+arm64,
+          # linux x64+arm64). All runners use -latest: older macOS images are
+          # retired and no pinned image is guaranteed to stay available.
+          - os: macos-latest
             target: mac
           - os: windows-latest
-            arch: x64
             target: win
-          - os: ubuntu-22.04
-            arch: x64
-            target: linux
-          - os: ubuntu-22.04
-            arch: arm64
+          - os: ubuntu-latest
             target: linux
     runs-on: ${{ matrix.os }}
     steps:
@@ -122,7 +117,7 @@ jobs:
         working-directory: apps/electron
         run: pnpm run build
 
-      - name: Package (${{ matrix.target }}/${{ matrix.arch }})
+      - name: Package (${{ matrix.target }})
         working-directory: apps/electron
         run: pnpm run package:${{ matrix.target }}
         env:
@@ -130,7 +125,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ matrix.target }}-${{ matrix.arch }}
+          name: electron-${{ matrix.target }}
           path: apps/electron/release/*
           if-no-files-found: error
 
